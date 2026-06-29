@@ -46,6 +46,8 @@ export default function ControlsPanel() {
     mode,
     busy,
     selectedId,
+    intakeReport,
+    viewMode,
     openPart,
     generateShell,
     setMode,
@@ -53,6 +55,8 @@ export default function ControlsPanel() {
     removeFeature,
     selectFeature,
     clearFeatures,
+    previewMold,
+    setViewMode,
     bakeAndSave,
     showPart,
     setShowPart,
@@ -76,6 +80,38 @@ export default function ControlsPanel() {
           Open egg STL…
         </button>
         {partName && <p className="meta">Loaded: {partName}</p>}
+        {intakeReport && (
+          <div className={`intake intake-${intakeReport.level}`}>
+            <div className="intake-head">
+              <span className="intake-badge">
+                {intakeReport.level === 'ok' ? '✓ Mesh OK' : intakeReport.level === 'warn' ? '▲ Mesh warnings' : '✕ Mesh problems'}
+              </span>
+              <span className="intake-stat">
+                {intakeReport.triangles.toLocaleString()} tris · {intakeReport.components} part
+                {intakeReport.components === 1 ? '' : 's'}
+              </span>
+            </div>
+            <ul className="intake-msgs">
+              {intakeReport.messages.map((m, i) => (
+                <li key={i}>{m}</li>
+              ))}
+            </ul>
+            <details>
+              <summary>details</summary>
+              <div className="intake-grid">
+                <span>Watertight</span><span>{intakeReport.watertight ? 'yes' : 'no'}</span>
+                <span>Open edges</span><span>{intakeReport.boundaryEdges}</span>
+                <span>Non-manifold edges</span><span>{intakeReport.nonManifoldEdges}</span>
+                <span>Degenerate tris</span><span>{intakeReport.degenerateTris}</span>
+                <span>Manifold ingest</span><span>{intakeReport.manifoldStatus}</span>
+                <span>Size (mm)</span>
+                <span>
+                  {intakeReport.bbox.size.map((v) => v.toFixed(1)).join(' × ')}
+                </span>
+              </div>
+            </details>
+          </div>
+        )}
       </section>
 
       <section>
@@ -216,6 +252,13 @@ export default function ControlsPanel() {
 
       <section>
         <h2>4 · Export</h2>
+        <button
+          className={viewMode === 'preview' ? 'tool active' : 'tool'}
+          onClick={viewMode === 'preview' ? () => setViewMode('edit') : previewMold}
+          disabled={disabled || !shellGeom}
+        >
+          {viewMode === 'preview' ? '✎ Back to editing' : '👁 Preview baked mold'}
+        </button>
         <button
           className="primary export"
           onClick={bakeAndSave}

@@ -3,7 +3,7 @@
 // Tree-shaken out of production (imported only under import.meta.env.DEV).
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { generateShell, bake } from './worker/geometryClient';
+import { generateShell, bake, inspect } from './worker/geometryClient';
 import { useStore } from './state/store';
 import { parseSTL, toArrays, fromArrays } from './lib/geometry';
 
@@ -21,8 +21,11 @@ import { parseSTL, toArrays, fromArrays } from './lib/geometry';
       features: [],
       partName: 'egg.stl',
       showPart: true,
+      intakeReport: null,
     });
-    return { tris: geom.index!.count / 3 };
+    const report = await inspect(toArrays(geom));
+    useStore.setState({ intakeReport: report });
+    return { tris: geom.index!.count / 3, report };
   },
   // Bake via the real worker but DISPLAY the result (no OS save dialog) so an
   // automated check can see the actual holes/funnel in the mesh.

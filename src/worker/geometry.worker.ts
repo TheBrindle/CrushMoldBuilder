@@ -4,7 +4,7 @@
 
 import ManifoldModule from 'manifold-3d';
 import type { WorkerRequest, WorkerResponse } from '../types';
-import { generateShellCore, bakeCore, type ManifoldWasm } from './geometryCore';
+import { generateShellCore, bakeCore, inspectCore, type ManifoldWasm } from './geometryCore';
 
 let wasm: ManifoldWasm = null;
 async function getWasm(): Promise<ManifoldWasm> {
@@ -28,15 +28,25 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     const onPhase = (phase: string, value?: number) =>
       post({ id: req.id, type: 'progress', phase, value });
 
-    let result;
-    if (req.type === 'generateShell') {
-      result = generateShellCore(w, req.part, req.thickness, req.edgeLength, onPhase);
-    } else {
-      result = bakeCore(w, req.shell, req.features, req.settings, onPhase);
+    if (req.type === 'inspect') {
+      const report = inspectCore(w, req.geom);
+      post({ id: req.id, type: 'inspectResult', report });
+      return;
     }
 
+    const result =
+      req.type === 'generateShell'
+        ? generateShellCore(w, req.part, req.thickness, req.edgeLength, onPhase)
+        : bakeCore(w, req.shell, req.features, req.settings, onPhase);
+
     post(
-      { id: req.id, type: 'result', geom: result.geom, volume: result.volume, status: result.status },
+      {
+        id: req.id,
+        type: 'result',
+        geom: result.geom,
+        volume: result.volume,
+        status: result.status,
+      },
       [result.geom.position.buffer, result.geom.index.buffer],
     );
   } catch (err) {

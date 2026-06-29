@@ -1,10 +1,11 @@
 // Main-thread wrapper around the geometry worker.
-// Exposes promise-based generateShell() / bake() with a progress callback.
+// Promise-based generateShell() / bake() / inspect() with a progress callback.
 
 import type {
   GeomArrays,
   Feature,
   Settings,
+  IntakeReport,
   WorkerRequest,
   WorkerResponse,
 } from '../types';
@@ -14,8 +15,14 @@ type ProgressCb = (phase: string, value?: number) => void;
 // Omit over a union keeps only shared keys; distribute to preserve each variant.
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
+export interface ShellResult {
+  geom: GeomArrays;
+  volume: number;
+  status: string;
+}
+
 interface Pending {
-  resolve: (r: { geom: GeomArrays; volume: number; status: string }) => void;
+  resolve: (r: unknown) => void;
   reject: (e: Error) => void;
   onProgress?: ProgressCb;
 }
@@ -37,7 +44,14 @@ function getWorker(): Worker {
         p.onProgress?.(msg.phase, msg.value);
       } else if (msg.type === 'result') {
         pending.delete(msg.id);
-        p.resolve({ geom: msg.geom, volume: msg.volume, status: msg.status });
+        p.resolve({
+          geom: msg.geom,
+          volume: msg.volume,
+          status: msg.status,
+        } satisfies ShellResult);
+      } else if (msg.type === 'inspectResult') {
+        pending.delete(msg.id);
+        p.resolve(msg.report);
       } else {
         pending.delete(msg.id);
         p.reject(new Error(msg.message));
@@ -52,19 +66,17 @@ function getWorker(): Worker {
   return worker;
 }
 
-function send(
+function send<T>(
   req: DistributiveOmit<WorkerRequest, 'id'>,
   transfer: Transferable[],
   onProgress?: ProgressCb,
-) {
+): Promise<T> {
   const w = getWorker();
   const id = nextId++;
-  return new Promise<{ geom: GeomArrays; volume: number; status: string }>(
-    (resolve, reject) => {
-      pending.set(id, { resolve, reject, onProgress });
-      w.postMessage({ ...req, id } as WorkerRequest, transfer);
-    },
-  );
+  return new Promise<T>((resolve, reject) => {
+    pending.set(id, { resolve: resolve as (r: unknown) => void, reject, onProgress });
+    w.postMessage({ ...req, id } as WorkerRequest, transfer);
+  });
 }
 
 export function generateShell(
@@ -72,13 +84,9 @@ export function generateShell(
   thickness: number,
   edgeLength: number,
   onProgress?: ProgressCb,
-) {
-  // Copy buffers so the caller's geometry survives the transfer.
-  const partCopy: GeomArrays = {
-    position: part.position.slice(),
-    index: part.index.slice(),
-  };
-  return send(
+): Promise<ShellResult> {
+  const partCopy: GeomArrays = { position: part.position.slice(), index: part.index.slice() };
+  return send<ShellResult>(
     { type: 'generateShell', part: partCopy, thickness, edgeLength },
     [partCopy.position.buffer, partCopy.index.buffer],
     onProgress,
@@ -90,14 +98,19 @@ export function bake(
   features: Feature[],
   settings: Settings,
   onProgress?: ProgressCb,
-) {
-  const shellCopy: GeomArrays = {
-    position: shell.position.slice(),
-    index: shell.index.slice(),
-  };
-  return send(
+): Promise<ShellResult> {
+  const shellCopy: GeomArrays = { position: shell.position.slice(), index: shell.index.slice() };
+  return send<ShellResult>(
     { type: 'bake', shell: shellCopy, features, settings },
     [shellCopy.position.buffer, shellCopy.index.buffer],
     onProgress,
   );
+}
+
+export function inspect(geom: GeomArrays): Promise<IntakeReport> {
+  const copy: GeomArrays = { position: geom.position.slice(), index: geom.index.slice() };
+  return send<IntakeReport>({ type: 'inspect', geom: copy }, [
+    copy.position.buffer,
+    copy.index.buffer,
+  ]);
 }

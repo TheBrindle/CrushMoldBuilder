@@ -5,8 +5,14 @@ import Module from 'manifold-3d';
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { writeFileSync } from 'node:fs';
-import { generateShellCore, bakeCore } from '../src/worker/geometryCore';
+import {
+  generateShellCore,
+  bakeCore,
+  inspectCore,
+  arraysToManifold,
+} from '../src/worker/geometryCore';
 import { exportSTL, fromArrays, parseSTL } from '../src/lib/geometry';
+import { makeStarPrism, starValleyAngleDeg } from './shapes';
 import { DEFAULT_SETTINGS, type Feature, type GeomArrays, type Vec3 } from '../src/types';
 
 let failures = 0;
@@ -38,6 +44,44 @@ console.log(`part: ${part.position.length / 3} verts, ${part.index.length / 3} t
 const wasm = await Module();
 wasm.setup();
 const S = { ...DEFAULT_SETTINGS };
+
+console.log('\n=== Intake checker ===');
+const rep = inspectCore(wasm, part);
+ok('clean egg: watertight', rep.watertight, `boundary=${rep.boundaryEdges} nonManifold=${rep.nonManifoldEdges}`);
+ok('clean egg: 1 component', rep.components === 1, `${rep.components}`);
+ok('clean egg: manifold NoError', rep.manifoldStatus === 'NoError', rep.manifoldStatus);
+ok('clean egg: level ok', rep.level === 'ok', `${rep.level} :: ${rep.messages.join(' | ')}`);
+// holey mesh (drop a triangle) must FAIL with open edges
+const holey = { position: part.position, index: part.index.slice(0, part.index.length - 3) };
+const repH = inspectCore(wasm, holey);
+ok('holey mesh: flags open edges + fail', repH.boundaryEdges > 0 && repH.level === 'fail', `open=${repH.boundaryEdges} level=${repH.level}`);
+
+console.log('\n=== Tight sub-90° star: clean shell + intact cavity (no SDF artifacts) ===');
+{
+  const star = makeStarPrism(6, 12, 2.5, 12); // sharp concave valleys
+  const valley = starValleyAngleDeg(6, 12, 2.5);
+  ok('valley is a sub-90° inner corner', valley < 90, `${valley.toFixed(0)}°`);
+
+  // Input is clean -> proves any artifacts come from the offset, not the STL.
+  const rin = inspectCore(wasm, star);
+  ok('star input is clean manifold', rin.level !== 'fail' && rin.components === 1 && rin.watertight,
+    `level=${rin.level} comp=${rin.components} water=${rin.watertight}`);
+
+  const ss = generateShellCore(wasm, star, 2, 1.0);
+  ok('star shell status NoError', ss.status === 'NoError', ss.status);
+
+  // Topology check: exactly one solid wall (+), one cavity void (-) ~ the star,
+  // and genus -1 (a single void, i.e. NO swiss-cheese tunnels from sign errors).
+  const m = arraysToManifold(wasm, ss.geom);
+  const vols = (m.decompose() as unknown[]).map((p) => (p as { volume(): number }).volume());
+  const positive = vols.filter((v) => v > 1e-6);
+  const negative = vols.filter((v) => v < -1e-6);
+  ok('one solid wall, no positive island debris', positive.length === 1, `positive comps=${positive.length}`);
+  ok('mold cavity preserved (one void ≈ star volume)',
+    negative.length === 1 && Math.abs(Math.abs(negative[0]) - rin.volume) < rin.volume * 0.05,
+    `void=${negative[0]?.toFixed(1)} starVol=${rin.volume.toFixed(1)}`);
+  ok('no tunnels — genus = -1 (parity-sign SDF)', m.genus() === -1, `genus=${m.genus()}`);
+}
 
 console.log('\n=== Shell ===');
 const shell = generateShellCore(wasm, part, S.thickness, S.edgeLength);

@@ -51,12 +51,36 @@ export const DEFAULT_SETTINGS: Settings = {
 
 // ---- Worker message protocol ----
 
+/** Diagnostic report on an imported mesh. */
+export interface IntakeReport {
+  triangles: number;
+  vertices: number;
+  boundaryEdges: number; // open edges (holes) — edge used by 1 triangle
+  nonManifoldEdges: number; // edge shared by >2 triangles
+  components: number; // disconnected surface pieces
+  degenerateTris: number; // ~zero-area triangles
+  bbox: { min: Vec3; max: Vec3; size: Vec3 };
+  manifoldStatus: string; // result of feeding it to Manifold
+  genus: number;
+  volume: number; // signed; < 0 implies inverted/flipped normals
+  watertight: boolean;
+  invertedNormals: boolean;
+  level: 'ok' | 'warn' | 'fail';
+  messages: string[];
+}
+
 export interface ShellRequest {
   id: number;
   type: 'generateShell';
   part: GeomArrays;
   thickness: number;
   edgeLength: number;
+}
+
+export interface InspectRequest {
+  id: number;
+  type: 'inspect';
+  geom: GeomArrays;
 }
 
 export interface BakeRequest {
@@ -67,7 +91,7 @@ export interface BakeRequest {
   settings: Settings;
 }
 
-export type WorkerRequest = ShellRequest | BakeRequest;
+export type WorkerRequest = ShellRequest | BakeRequest | InspectRequest;
 
 export interface ProgressMessage {
   id: number;
@@ -84,10 +108,20 @@ export interface ResultMessage {
   status: string;
 }
 
+export interface InspectResultMessage {
+  id: number;
+  type: 'inspectResult';
+  report: IntakeReport;
+}
+
 export interface ErrorMessage {
   id: number;
   type: 'error';
   message: string;
 }
 
-export type WorkerResponse = ProgressMessage | ResultMessage | ErrorMessage;
+export type WorkerResponse =
+  | ProgressMessage
+  | ResultMessage
+  | InspectResultMessage
+  | ErrorMessage;

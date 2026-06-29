@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import type { GeomArrays, Feature, Settings, Vec3 } from '../types';
+import type { GeomArrays, Feature, Settings, Vec3, IntakeReport } from '../types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ManifoldWasm = any;
@@ -59,39 +59,35 @@ export function computeBounds(position: Float32Array) {
   return { min, max };
 }
 
-/** SDF closure: POSITIVE inside the part, negative outside (Manifold convention). */
+/**
+ * SDF closure: POSITIVE inside the part, negative outside (Manifold convention).
+ *
+ * Distance magnitude comes from the nearest point on the surface. The inside/
+ * outside SIGN comes from RAYCAST PARITY — count how many times a ray from the
+ * point crosses the (watertight) surface: odd = inside. This is robust at sharp
+ * concave corners, where a nearest-face-normal test flips and spawns inverted
+ * bubbles / tunnels in the offset surface.
+ */
 export function makeSDF(part: GeomArrays): (p: number[]) => number {
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(part.position, 3));
   geom.setIndex(new THREE.BufferAttribute(part.index, 1));
   const bvh = new MeshBVH(geom);
 
-  const pos = part.position;
-  const idx = part.index;
   const q = new THREE.Vector3();
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  const ab = new THREE.Vector3();
-  const ac = new THREE.Vector3();
-  const nrm = new THREE.Vector3();
   const target = { point: new THREE.Vector3(), distance: 0, faceIndex: -1 };
+  const ray = new THREE.Ray();
+  // Oblique, irrational-ish direction so the ray rarely grazes an edge/vertex.
+  const dir = new THREE.Vector3(0.30151, 0.55276, 0.77689).normalize();
 
   return (p: number[]) => {
     q.set(p[0], p[1], p[2]);
     bvh.closestPointToPoint(q, target);
-    const fi = target.faceIndex;
-    a.fromArray(pos, idx[fi * 3] * 3);
-    b.fromArray(pos, idx[fi * 3 + 1] * 3);
-    c.fromArray(pos, idx[fi * 3 + 2] * 3);
-    ab.subVectors(b, a);
-    ac.subVectors(c, a);
-    nrm.crossVectors(ab, ac); // unnormalized; only sign of the dot matters
-    const dot =
-      (q.x - target.point.x) * nrm.x +
-      (q.y - target.point.y) * nrm.y +
-      (q.z - target.point.z) * nrm.z;
-    return (dot < 0 ? 1 : -1) * target.distance;
+    ray.origin.copy(q);
+    ray.direction.copy(dir);
+    const hits = bvh.raycast(ray, THREE.DoubleSide);
+    const inside = (hits.length & 1) === 1;
+    return (inside ? 1 : -1) * target.distance;
   };
 }
 
@@ -200,12 +196,12 @@ export function generateShellCore(
 
   onPhase?.('Subtracting cavity…');
   const shell = outer.subtract(cavity);
+  del(outer);
+  del(cavity);
 
   const geom = manifoldToArrays(shell);
   const volume = shell.volume();
   const status = String(shell.status());
-  del(outer);
-  del(cavity);
   del(shell);
   return { geom, volume, status };
 }
@@ -247,4 +243,139 @@ export function bakeCore(
   const status = String(mold.status());
   del(mold);
   return { geom, volume, status };
+}
+
+// ---------- mesh intake diagnostics ----------
+
+export function inspectCore(wasm: ManifoldWasm, geom: GeomArrays): IntakeReport {
+  const pos = geom.position;
+  const idx = geom.index;
+  const triangles = idx.length / 3;
+  const vertices = pos.length / 3;
+
+  const b = computeBounds(pos);
+  const size: Vec3 = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];
+
+  // Edge use counts (undirected) + connected components (union-find on vertices).
+  const edgeUse = new Map<number, number>();
+  const ekey = (u: number, v: number) => (u < v ? u * vertices + v : v * vertices + u);
+  const parent = new Int32Array(vertices);
+  for (let i = 0; i < vertices; i++) parent[i] = i;
+  const find = (x: number): number => {
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]];
+      x = parent[x];
+    }
+    return x;
+  };
+  const uni = (a: number, c: number) => {
+    const ra = find(a);
+    const rc = find(c);
+    if (ra !== rc) parent[ra] = rc;
+  };
+
+  let degenerateTris = 0;
+  const ax = [0, 0, 0];
+  const bx = [0, 0, 0];
+  const cx = [0, 0, 0];
+  const scale = Math.max(size[0], size[1], size[2]) || 1;
+  const areaEps = scale * scale * 1e-10;
+  for (let t = 0; t < triangles; t++) {
+    const i0 = idx[t * 3];
+    const i1 = idx[t * 3 + 1];
+    const i2 = idx[t * 3 + 2];
+    for (let k = 0; k < 3; k++) {
+      ax[k] = pos[i0 * 3 + k];
+      bx[k] = pos[i1 * 3 + k];
+      cx[k] = pos[i2 * 3 + k];
+    }
+    const e1x = bx[0] - ax[0], e1y = bx[1] - ax[1], e1z = bx[2] - ax[2];
+    const e2x = cx[0] - ax[0], e2y = cx[1] - ax[1], e2z = cx[2] - ax[2];
+    const crx = e1y * e2z - e1z * e2y;
+    const cry = e1z * e2x - e1x * e2z;
+    const crz = e1x * e2y - e1y * e2x;
+    const area = 0.5 * Math.sqrt(crx * crx + cry * cry + crz * crz);
+    if (area < areaEps) degenerateTris++;
+
+    const e = [ekey(i0, i1), ekey(i1, i2), ekey(i2, i0)];
+    for (const k of e) edgeUse.set(k, (edgeUse.get(k) ?? 0) + 1);
+    uni(i0, i1);
+    uni(i1, i2);
+  }
+
+  let boundaryEdges = 0;
+  let nonManifoldEdges = 0;
+  for (const c of edgeUse.values()) {
+    if (c === 1) boundaryEdges++;
+    else if (c > 2) nonManifoldEdges++;
+  }
+
+  const roots = new Set<number>();
+  for (let t = 0; t < triangles; t++) roots.add(find(idx[t * 3]));
+  const components = roots.size;
+
+  // Feed it to Manifold — the ultimate ingest test.
+  let manifoldStatus = '(not tested)';
+  let genus = NaN;
+  let volume = NaN;
+  let invertedNormals = false;
+  try {
+    const m = arraysToManifold(wasm, geom);
+    manifoldStatus = String(m.status());
+    if (manifoldStatus === 'NoError') {
+      try {
+        genus = m.genus();
+      } catch {
+        /* older builds */
+      }
+      volume = m.volume();
+      invertedNormals = volume < 0;
+    }
+    del(m);
+  } catch (e) {
+    manifoldStatus = 'NotManifold (' + (e instanceof Error ? e.message : 'rejected') + ')';
+  }
+
+  const watertight = boundaryEdges === 0 && nonManifoldEdges === 0;
+
+  const messages: string[] = [];
+  let level: 'ok' | 'warn' | 'fail' = 'ok';
+  const fail = (m: string) => {
+    messages.push(m);
+    level = 'fail';
+  };
+  const warn = (m: string) => {
+    messages.push(m);
+    if (level === 'ok') level = 'warn';
+  };
+
+  if (boundaryEdges > 0) fail(`${boundaryEdges} open edge(s) — mesh has holes / is not closed.`);
+  if (nonManifoldEdges > 0) fail(`${nonManifoldEdges} non-manifold edge(s) — edges shared by >2 faces.`);
+  if (manifoldStatus !== 'NoError' && !manifoldStatus.startsWith('NotManifold'))
+    fail(`Manifold rejected the mesh: ${manifoldStatus}.`);
+  else if (manifoldStatus.startsWith('NotManifold')) fail(`Manifold rejected the mesh.`);
+  if (components > 1)
+    warn(`${components} separate pieces — extra/floating bodies in the input?`);
+  if (invertedNormals) warn(`Inverted normals (negative volume) — faces may be flipped.`);
+  if (degenerateTris > 0) warn(`${degenerateTris} degenerate (zero-area) triangle(s).`);
+  if (scale < 1) warn(`Very small (largest dim ${scale.toFixed(2)} mm) — check units?`);
+  if (scale > 1000) warn(`Very large (largest dim ${scale.toFixed(0)} mm) — check units?`);
+  if (messages.length === 0) messages.push('No issues found — closed, single-piece, manifold.');
+
+  return {
+    triangles,
+    vertices,
+    boundaryEdges,
+    nonManifoldEdges,
+    components,
+    degenerateTris,
+    bbox: { min: [b.min[0], b.min[1], b.min[2]], max: [b.max[0], b.max[1], b.max[2]], size },
+    manifoldStatus,
+    genus,
+    volume,
+    watertight,
+    invertedNormals,
+    level,
+    messages,
+  };
 }

@@ -1,5 +1,5 @@
-import { useMemo, useRef } from 'react';
-import { Canvas, type ThreeEvent } from '@react-three/fiber';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
 import { OrbitControls, Bounds, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../state/store';
@@ -7,7 +7,7 @@ import type { Feature, Vec3 } from '../types';
 
 const UP_Y = new THREE.Vector3(0, 1, 0);
 const _ray = new THREE.Raycaster();
-// three-mesh-bvh: only return the nearest hit (faster + what we want for thickness).
+// three-mesh-bvh: only return the nearest hit.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (_ray as any).firstHitOnly = true;
 
@@ -20,48 +20,15 @@ function measureThickness(point: THREE.Vector3, normal: THREE.Vector3, mesh: THR
   return hits.length ? hits[0].distance + back : null;
 }
 
-function PickTarget({ geometry }: { geometry: THREE.BufferGeometry }) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const mode = useStore((s) => s.mode);
-  const addFeature = useStore((s) => s.addFeature);
-  const fallback = useStore((s) => s.settings.thickness);
-
-  const handleClick = (e: ThreeEvent<MouseEvent>) => {
-    if (mode === 'idle' || !e.face) return;
-    e.stopPropagation();
-    const point = e.point.clone();
-    const normal = e.face.normal
-      .clone()
-      .transformDirection(e.object.matrixWorld)
-      .normalize();
-    const wt = measureThickness(point, normal, meshRef.current!) ?? fallback;
-    addFeature(
-      mode,
-      [point.x, point.y, point.z] as Vec3,
-      [normal.x, normal.y, normal.z] as Vec3,
-      wt,
-    );
-  };
-
-  return (
-    <mesh
-      ref={meshRef}
-      geometry={geometry}
-      onClick={handleClick}
-      castShadow
-      receiveShadow
-    >
-      <meshStandardMaterial
-        color="#dccfb4"
-        roughness={0.85}
-        metalness={0}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
-  );
-}
-
-function FeatureProxy({ feature, selected }: { feature: Feature; selected: boolean }) {
+function FeatureProxy({
+  feature,
+  selected,
+  onStartDrag,
+}: {
+  feature: Feature;
+  selected: boolean;
+  onStartDrag: (id: string) => void;
+}) {
   const settings = useStore((s) => s.settings);
   const select = useStore((s) => s.selectFeature);
   const removeFeature = useStore((s) => s.removeFeature);
@@ -73,26 +40,25 @@ function FeatureProxy({ feature, selected }: { feature: Feature; selected: boole
 
   const pos = new THREE.Vector3(...feature.position);
   const color = feature.type === 'vent' ? '#e0564f' : '#4f8fe0';
+  const handlers = {
+    onPointerDown: (e: ThreeEvent<PointerEvent>) => {
+      e.stopPropagation();
+      select(feature.id);
+      onStartDrag(feature.id);
+    },
+    onContextMenu: (e: ThreeEvent<MouseEvent>) => {
+      e.stopPropagation();
+      removeFeature(feature.id);
+    },
+  };
 
   if (feature.type === 'vent') {
     const h = feature.wallThickness + 2;
-    // match the real cut: centred on the wall mid-plane (inward by wall/2)
     const ventPos = pos
       .clone()
       .addScaledVector(new THREE.Vector3(...feature.normal), -feature.wallThickness / 2);
     return (
-      <mesh
-        position={ventPos}
-        quaternion={quat}
-        onClick={(e) => {
-          e.stopPropagation();
-          select(feature.id);
-        }}
-        onContextMenu={(e) => {
-          e.stopPropagation();
-          removeFeature(feature.id);
-        }}
-      >
+      <mesh position={ventPos} quaternion={quat} {...handlers}>
         <cylinderGeometry args={[settings.ventDia / 2, settings.ventDia / 2, h, 20]} />
         <meshStandardMaterial
           color={color}
@@ -105,22 +71,10 @@ function FeatureProxy({ feature, selected }: { feature: Feature; selected: boole
     );
   }
 
-  // fill funnel proxy: cone standing proud along +normal
   const fh = settings.funnelHeight;
   const offset = pos.clone().addScaledVector(new THREE.Vector3(...feature.normal), fh / 2);
   return (
-    <mesh
-      position={offset}
-      quaternion={quat}
-      onClick={(e) => {
-        e.stopPropagation();
-        select(feature.id);
-      }}
-      onContextMenu={(e) => {
-        e.stopPropagation();
-        removeFeature(feature.id);
-      }}
-    >
+    <mesh position={offset} quaternion={quat} {...handlers}>
       <coneGeometry args={[settings.funnelTopDia / 2, fh, 28, 1, true]} />
       <meshStandardMaterial
         color={color}
@@ -137,9 +91,105 @@ function FeatureProxy({ feature, selected }: { feature: Feature; selected: boole
 function Scene() {
   const partGeom = useStore((s) => s.partGeom);
   const shellGeom = useStore((s) => s.shellGeom);
+  const moldGeom = useStore((s) => s.moldGeom);
+  const viewMode = useStore((s) => s.viewMode);
   const showPart = useStore((s) => s.showPart);
   const features = useStore((s) => s.features);
   const selectedId = useStore((s) => s.selectedId);
+  const mode = useStore((s) => s.mode);
+  const addFeature = useStore((s) => s.addFeature);
+  const updateFeature = useStore((s) => s.updateFeature);
+  const fallbackThickness = useStore((s) => s.settings.thickness);
+
+  const { camera, gl, controls } = useThree();
+  const shellMeshRef = useRef<THREE.Mesh>(null);
+  const draggingRef = useRef<string | null>(null);
+  const [, force] = useState(0);
+
+  const showMold = viewMode === 'preview' && !!moldGeom;
+
+  // place on click (only in a placing mode, edit view)
+  const handlePlace = (e: ThreeEvent<MouseEvent>) => {
+    if (mode === 'idle' || !e.face || draggingRef.current) return;
+    e.stopPropagation();
+    const point = e.point.clone();
+    const normal = e.face.normal.clone().transformDirection(e.object.matrixWorld).normalize();
+    const wt = measureThickness(point, normal, shellMeshRef.current!) ?? fallbackThickness;
+    addFeature(
+      mode,
+      [point.x, point.y, point.z] as Vec3,
+      [normal.x, normal.y, normal.z] as Vec3,
+      wt,
+    );
+  };
+
+  const startDrag = (id: string) => {
+    draggingRef.current = id;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (controls) (controls as any).enabled = false;
+    force((n) => n + 1);
+  };
+
+  // Surface-constrained drag: raycast the shell on pointer move while dragging.
+  useEffect(() => {
+    const dom = gl.domElement;
+    const ndc = new THREE.Vector2();
+    const rc = new THREE.Raycaster();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (rc as any).firstHitOnly = true;
+
+    const onMove = (ev: PointerEvent) => {
+      const id = draggingRef.current;
+      const mesh = shellMeshRef.current;
+      if (!id || !mesh) return;
+      const rect = dom.getBoundingClientRect();
+      ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      rc.setFromCamera(ndc, camera);
+      const hits = rc.intersectObject(mesh, false);
+      if (hits.length && hits[0].face) {
+        const p = hits[0].point;
+        const n = hits[0].face.normal
+          .clone()
+          .transformDirection(mesh.matrixWorld)
+          .normalize();
+        const f = useStore.getState().features.find((x) => x.id === id);
+        updateFeature(
+          id,
+          [p.x, p.y, p.z],
+          [n.x, n.y, n.z],
+          f?.wallThickness ?? fallbackThickness,
+        );
+      }
+    };
+
+    const onUp = () => {
+      const id = draggingRef.current;
+      if (!id) return;
+      const mesh = shellMeshRef.current;
+      const f = useStore.getState().features.find((x) => x.id === id);
+      if (mesh && f) {
+        const wt =
+          measureThickness(
+            new THREE.Vector3(...f.position),
+            new THREE.Vector3(...f.normal),
+            mesh,
+          ) ?? fallbackThickness;
+        updateFeature(id, f.position, f.normal, wt);
+      }
+      draggingRef.current = null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (controls) (controls as any).enabled = true;
+      force((n) => n + 1);
+    };
+
+    dom.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      dom.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [camera, gl, controls, updateFeature, fallbackThickness]);
 
   const active = shellGeom ?? partGeom;
   const modelKey = active?.uuid ?? 'none';
@@ -151,10 +201,25 @@ function Scene() {
       <directionalLight position={[-6, -4, -5]} intensity={0.35} />
 
       {active && (
-        <Bounds key={modelKey} fit clip observe margin={1.3}>
-          {/* Shell is the pick target once generated; otherwise show the raw part. */}
-          {shellGeom ? (
-            <PickTarget geometry={shellGeom} />
+        <Bounds key={modelKey} fit clip margin={1.3}>
+          {showMold ? (
+            <mesh geometry={moldGeom!}>
+              <meshStandardMaterial
+                color="#caa46a"
+                roughness={0.8}
+                metalness={0.02}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+          ) : shellGeom ? (
+            <mesh ref={shellMeshRef} geometry={shellGeom} onClick={handlePlace}>
+              <meshStandardMaterial
+                color="#dccfb4"
+                roughness={0.85}
+                metalness={0}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
           ) : (
             partGeom && (
               <mesh geometry={partGeom}>
@@ -163,8 +228,7 @@ function Scene() {
             )
           )}
 
-          {/* faint ghost of the part once the shell exists */}
-          {shellGeom && partGeom && showPart && (
+          {!showMold && shellGeom && partGeom && showPart && (
             <mesh geometry={partGeom}>
               <meshStandardMaterial
                 color="#8aa0b8"
@@ -175,9 +239,16 @@ function Scene() {
             </mesh>
           )}
 
-          {features.map((f) => (
-            <FeatureProxy key={f.id} feature={f} selected={f.id === selectedId} />
-          ))}
+          {!showMold &&
+            shellGeom &&
+            features.map((f) => (
+              <FeatureProxy
+                key={f.id}
+                feature={f}
+                selected={f.id === selectedId}
+                onStartDrag={startDrag}
+              />
+            ))}
         </Bounds>
       )}
 

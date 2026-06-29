@@ -341,3 +341,71 @@ button.link {
 .toast button {
   align-self: flex-start;
 }
+
+/* ---- intake report ---- */
+.intake {
+  border: 1px solid #2f3540;
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #14171d;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.intake-ok {
+  border-left-color: #4caf7d;
+}
+.intake-warn {
+  border-left-color: #d8a23a;
+}
+.intake-fail {
+  border-left-color: #e0564f;
+}
+.intake-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.intake-badge {
+  font-size: 12px;
+  font-weight: 600;
+}
+.intake-ok .intake-badge {
+  color: #6fd9a4;
+}
+.intake-warn .intake-badge {
+  color: #ffce72;
+}
+.intake-fail .intake-badge {
+  color: #ff8b85;
+}
+.intake-stat {
+  font-size: 11px;
+  color: #79818f;
+}
+.intake-msgs {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11px;
+  color: #aab2bf;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.intake-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  font-size: 11px;
+  color: #8b94a3;
+  padding-top: 4px;
+}
+.intake-grid span:nth-child(even) {
+  color: #c4cad4;
+  text-align: right;
+}
+.warn-note {
+  color: #d8a23a !important;
+}
