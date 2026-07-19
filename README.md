@@ -1,9 +1,11 @@
-# Eggshell Mold Maker
+# Crush Mold Builder
 
 A local-first browser app that turns a part STL (e.g. an egg) into a **watertight,
 resin-printable crush mold**: it shells the part to a set wall thickness, lets you
 click the surface to place a fill port and vents, and bakes everything into one
 manifold STL — all client-side, nothing uploaded.
+
+**Live demo:** _deploying on Vercel — link coming soon._
 
 **Pipeline:** Open part STL → Generate shell (set offset) → click to place vents +
 fill port → Bake & Save mold STL. Units are millimetres throughout (1 unit = 1 mm).
@@ -34,6 +36,13 @@ Open `samples/egg.stl` (also served at `/egg.stl`) to try it immediately.
 then in Chrome/Edge use the install icon in the address bar. It gets its own window
 and desktop icon, works fully offline (the Manifold WASM is precached), and uses the
 File System Access API for native Open/Save.
+
+## Deploy (Vercel)
+
+Fully static, client-side only — no backend. Import the repo into Vercel; it
+auto-detects Vite (build `npm run build`, output `dist/`) and redeploys on every
+push. No environment variables or special headers needed — the Manifold WASM is
+single-threaded, so no cross-origin isolation is required.
 
 ## How it works
 

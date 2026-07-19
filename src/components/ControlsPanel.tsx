@@ -70,7 +70,7 @@ export default function ControlsPanel() {
   return (
     <aside className="panel">
       <header className="panel-head">
-        <h1>Eggshell&nbsp;Mold&nbsp;Maker</h1>
+        <h1>Crush&nbsp;Mold&nbsp;Builder</h1>
         <span className="sub">STL in · watertight STL out · mm</span>
       </header>
 

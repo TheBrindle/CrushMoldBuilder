@@ -15,8 +15,8 @@ export default defineConfig({
       },
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'Eggshell Mold Maker',
-        short_name: 'MoldMaker',
+        name: 'Crush Mold Builder',
+        short_name: 'CrushMold',
         description:
           'Turn a part STL into a watertight, resin-printable crush mold — fully local in your browser.',
         theme_color: '#181b21',
