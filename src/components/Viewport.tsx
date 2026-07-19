@@ -274,6 +274,7 @@ export default function Viewport() {
       shadows
       camera={{ position: [40, 30, 40], fov: 45, near: 0.1, far: 5000 }}
       style={{ background: 'linear-gradient(180deg,#1a1d23,#101216)' }}
+      gl={{ preserveDrawingBuffer: true }}
     >
       <Scene />
     </Canvas>

@@ -1,5 +1,6 @@
 import Viewport from './components/Viewport';
 import ControlsPanel from './components/ControlsPanel';
+import FeedbackModal from './components/FeedbackModal';
 import { useStore } from './state/store';
 import './App.css';
 
@@ -55,6 +56,7 @@ export default function App() {
         <ErrorToast />
       </div>
       <ControlsPanel />
+      <FeedbackModal />
     </div>
   );
 }

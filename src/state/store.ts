@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import * as THREE from 'three';
 import '../lib/bvh'; // side-effect: accelerated raycast + computeBoundsTree
 import type { Feature, FeatureType, IntakeReport, Settings, Vec3 } from '../types';
+import type { FeedbackKind } from '../lib/feedback';
 import { DEFAULT_SETTINGS } from '../types';
 import { parseSTL, toArrays, fromArrays, exportSTL } from '../lib/geometry';
 import { openSTL, saveSTL } from '../lib/fileAccess';
@@ -33,6 +34,7 @@ interface State {
   busy: Busy | null;
   error: string | null;
   showPart: boolean;
+  feedback: { kind: FeedbackKind; image: string } | null;
 
   openPart: () => Promise<void>;
   generateShell: () => Promise<void>;
@@ -48,6 +50,8 @@ interface State {
   bakeAndSave: () => Promise<void>;
   setShowPart: (v: boolean) => void;
   dismissError: () => void;
+  openFeedback: (kind: FeedbackKind, image: string) => void;
+  closeFeedback: () => void;
 }
 
 function dispose(g: THREE.BufferGeometry | null) {
@@ -76,6 +80,7 @@ export const useStore = create<State>((set, get) => {
     busy: null,
     error: null,
     showPart: true,
+    feedback: null,
 
     openPart: async () => {
       try {
@@ -239,5 +244,7 @@ export const useStore = create<State>((set, get) => {
 
     setShowPart: (v) => set({ showPart: v }),
     dismissError: () => set({ error: null }),
+    openFeedback: (kind, image) => set({ feedback: { kind, image } }),
+    closeFeedback: () => set({ feedback: null }),
   };
 });

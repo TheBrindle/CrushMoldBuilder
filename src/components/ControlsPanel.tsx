@@ -1,6 +1,7 @@
 import { useStore } from '../state/store';
 import type { Settings } from '../types';
-import { feedbackUrl, bugUrl } from '../lib/feedback';
+import type { FeedbackKind } from '../lib/feedback';
+import { captureApp } from '../lib/screenshot';
 
 function NumberField({
   label,
@@ -61,12 +62,23 @@ export default function ControlsPanel() {
     bakeAndSave,
     showPart,
     setShowPart,
+    openFeedback,
   } = useStore();
 
   const set = (patch: Partial<Settings>) => updateSettings(patch);
   const ventCount = features.filter((f) => f.type === 'vent').length;
   const fillCount = features.filter((f) => f.type === 'fill').length;
   const disabled = !!busy;
+
+  const startFeedback = async (kind: FeedbackKind) => {
+    let image = '';
+    try {
+      image = await captureApp();
+    } catch {
+      image = '';
+    }
+    openFeedback(kind, image);
+  };
 
   return (
     <aside className="panel">
@@ -273,12 +285,12 @@ export default function ControlsPanel() {
       <footer className="panel-foot">
         <div>Vents ≈ resin drain points · put them at the high spots.</div>
         <div className="feedback-links">
-          <a href={feedbackUrl()} target="_blank" rel="noreferrer">
+          <button className="link-btn" onClick={() => startFeedback('feedback')}>
             💡 Feedback
-          </a>
-          <a href={bugUrl()} target="_blank" rel="noreferrer">
+          </button>
+          <button className="link-btn" onClick={() => startFeedback('bug')}>
             🐛 Report a bug
-          </a>
+          </button>
         </div>
       </footer>
     </aside>
