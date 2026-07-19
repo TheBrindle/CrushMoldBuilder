@@ -90,7 +90,7 @@ export default function ControlsPanel() {
       <section>
         <h2>1 · Part</h2>
         <button className="primary" onClick={openPart} disabled={disabled}>
-          Open egg STL…
+          Open mesh STL…
         </button>
         {partName && <p className="meta">Loaded: {partName}</p>}
         {intakeReport && (

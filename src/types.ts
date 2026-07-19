@@ -1,4 +1,4 @@
-// Shared types for the eggshell mold maker.
+// Shared types for Crush Mold Builder.
 // Geometry crosses the worker boundary as plain typed arrays (transferable).
 
 export type Vec3 = [number, number, number];

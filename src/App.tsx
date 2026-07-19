@@ -40,7 +40,7 @@ function EmptyHint() {
   if (partGeom) return null;
   return (
     <div className="empty">
-      <p>Open an egg / part STL to begin.</p>
+      <p>Open a mesh STL to begin.</p>
       <p className="small">Everything runs locally in your browser — nothing is uploaded.</p>
     </div>
   );
