@@ -257,6 +257,21 @@ button.link {
   color: #5e6675;
   border-top: 1px solid #23272f;
   padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.feedback-links {
+  display: flex;
+  gap: 14px;
+}
+.feedback-links a {
+  color: #8b94a3;
+  text-decoration: none;
+}
+.feedback-links a:hover {
+  color: #cbd2dd;
+  text-decoration: underline;
 }
 
 /* ---- busy overlay ---- */

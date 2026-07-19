@@ -1,0 +1,28 @@
+name: 🐛 Bug report
+description: A wrong or broken result — bad shell, failed bake, crash, etc.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open <part>.stl
+        2. Wall thickness 2mm, mesh detail 1mm, Generate shell
+        3. ...
+  - type: input
+    id: settings
+    attributes:
+      label: Settings used (wall thickness, mesh detail, port sizes)
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Auto-filled from the app's "Report a bug" link.

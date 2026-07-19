@@ -1,5 +1,6 @@
 import { useStore } from '../state/store';
 import type { Settings } from '../types';
+import { feedbackUrl, bugUrl } from '../lib/feedback';
 
 function NumberField({
   label,
@@ -270,7 +271,15 @@ export default function ControlsPanel() {
       </section>
 
       <footer className="panel-foot">
-        Vents ≈ resin drain points · put them at the high spots.
+        <div>Vents ≈ resin drain points · put them at the high spots.</div>
+        <div className="feedback-links">
+          <a href={feedbackUrl()} target="_blank" rel="noreferrer">
+            💡 Feedback
+          </a>
+          <a href={bugUrl()} target="_blank" rel="noreferrer">
+            🐛 Report a bug
+          </a>
+        </div>
       </footer>
     </aside>
   );

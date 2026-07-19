@@ -1,0 +1,25 @@
+name: 💡 Feedback / Feature request
+description: Share an idea or tell us what's rough right now
+title: "[Feedback]: "
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Crush Mold Builder!
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to see, or what's not working well?
+      description: Describe the idea or the friction you hit.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Part shape, your workflow, screenshots — whatever helps.
+  - type: input
+    id: environment
+    attributes:
+      label: App version / browser
+      description: Auto-filled if you came from the app's Feedback link.
